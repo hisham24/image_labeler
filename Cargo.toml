@@ -1,0 +1,49 @@
+[package]
+name = "image_labeler"
+version = "0.1.0"
+authors = ["hisham24 <hisham.tr24@gmail.com>"]
+edition = "2018"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[lib]
+path = "src/lib.rs"
+
+[[bin]]
+path = "src/main.rs"
+name = "image_labeler"
+
+[dependencies]
+actix-web = "4.0.0-beta.5"
+serde = "1"
+config = "0.11.0"
+uuid = { version = "0.8.1", features = ["v4"] }
+chrono = "0.4.15"
+actix-multipart = "0.4.0-beta.4"
+futures = "0.3.7"
+sanitize-filename = "0.2"
+serde_json = "1.0.64"
+# Workaround needed: https://github.com/actix/actix-web/issues/2185
+actix-files = "0.6.0-beta.4"
+actix-http = "=3.0.0-beta.5"
+actix-service = "=2.0.0-beta.5"
+# actix-files = "0.5.0"
+####################################################################
+
+[dependencies.sqlx]
+version = "0.5.1"
+default-features = false
+features = [
+    "runtime-actix-rustls",
+    "macros",
+    "postgres",
+    "uuid",
+    "chrono",
+    "migrate"
+]
+
+[dev-dependencies]
+actix-rt = "2.2"
+reqwest = { version = "0.11", features = ["json", "blocking", "multipart"] }
+tokio = { version = "1", features = ["rt"] }
+tempfile = "3.2.0"
