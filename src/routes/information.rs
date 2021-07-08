@@ -1,33 +1,37 @@
 use actix_web::{HttpResponse, web, error, Error};
 use sqlx::PgPool;
-use crate::data::Metadata;
+use crate::data::{Metadata, SavedImages};
+use std::collections::HashMap;
 
 
 pub async fn get_images_information(
-    info: web::Json<Metadata>,
+    web::Query(metadata): web::Query<Metadata>,
     pool: web::Data<PgPool>
 ) -> Result<HttpResponse, Error> {
-    let query_result = sqlx::query!(
+    let images = sqlx::query!(
         r#"
-        SELECT COUNT(*)
+        SELECT image
         FROM images
         WHERE username=$1 AND image_folder=$2
         "#,
-        info.username,
-        info.image_folder
+        metadata.username,
+        metadata.image_folder
     )
-        .fetch_one(pool.get_ref())
+        .fetch_all(pool.get_ref())
         .await
+        .map(|v| -> Vec<String> {
+            v.iter().map(|x| -> String {
+                x.image.clone()
+            }).collect()
+        })
         .map_err(|e| {
             println!("Failed to execute query: {}", e);
             error::ErrorInternalServerError(String::from(""))
         })?;
-    let count = match query_result.count {
-        Some(num) => num,
-        _ => 0,
-    };
-    println!("Received count {:?}", count);
-    let mut response = std::collections::HashMap::new();
-    response.insert("count", count);
-    Ok(HttpResponse::Ok().json(response))
+    let count = images.len();
+    println!("Saved images are {:?} with count {}", images, count);
+    Ok(HttpResponse::Ok().json(SavedImages {
+        images,
+        count,
+    }))
 }

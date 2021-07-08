@@ -97,7 +97,8 @@ pub async fn update_bbox(
     web::Query(metadata): web::Query<Metadata>,
     pool: web::Data<PgPool>,
 ) -> Result<HttpResponse, Error> {
-    let image= image.into_inner();
+    println!("Received update_bbox request");
+    let image = image.into_inner();
     let image_found = image_exists(&metadata, &image[..], pool.get_ref()).await?;
     if image_found {
         sqlx::query!(
@@ -115,6 +116,7 @@ pub async fn update_bbox(
                 println!("Failed to execute query: {}", e);
                 error::ErrorInternalServerError(String::from(""))
             })?;
+        println!("Received bboxes: {:?}", image_labels.bboxes);
         for bbox in image_labels.bboxes.iter() {
             sqlx::query!(
                 r#"

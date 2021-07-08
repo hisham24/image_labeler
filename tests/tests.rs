@@ -4,7 +4,7 @@ use sqlx::{PgConnection, Connection, PgPool, Executor};
 use image_labeler::startup::run;
 use image_labeler::configuration::{get_configuration, DatabaseSettings};
 use uuid::Uuid;
-use image_labeler::data::{Metadata, ImageLabels};
+use image_labeler::data::{Metadata, ImageLabels, SavedImages};
 use std::fs::remove_dir_all;
 use std::path::Path;
 use reqwest::blocking;
@@ -294,13 +294,12 @@ async fn get_images_information_returns_correct_count() {
     // Check if metadata upload was success before proceeding
     assert_eq!(200, response.status().as_u16());
 
-    #[derive(serde::Deserialize)]
-    struct ImageCount {
-        count: u32,
-    }
-
     let response = client
-        .get(format!("{}/images", app.address))
+        .get(
+            format!(
+                "{}/images?username={}&image_folder={}",
+                app.address, metadata.username, metadata.image_folder
+            ))
         .json(&metadata)
         .send()
         .await
@@ -308,10 +307,10 @@ async fn get_images_information_returns_correct_count() {
 
     assert_eq!(200, response.status().as_u16());
 
-    let image_count = response.json::<ImageCount>()
+    let images_saved = response.json::<SavedImages>()
         .await
         .expect("Failed to deserialize response");
-    assert_eq!(0, image_count.count);
+    assert_eq!(0, images_saved.count);
 
     let address = app.address.clone();
     let response = task::spawn_blocking(move || {
@@ -343,7 +342,11 @@ async fn get_images_information_returns_correct_count() {
     assert_eq!(200, response.status().as_u16());
 
     let response = client
-        .get(format!("{}/images", app.address))
+        .get(
+            format!(
+                "{}/images?username={}&image_folder={}",
+                app.address, metadata.username, metadata.image_folder
+            ))
         .json(&metadata)
         .send()
         .await
@@ -351,10 +354,10 @@ async fn get_images_information_returns_correct_count() {
 
     assert_eq!(200, response.status().as_u16());
 
-    let image_count = response.json::<ImageCount>()
+    let images_saved = response.json::<SavedImages>()
         .await
         .expect("Failed to deserialize response");
-    assert_eq!(1, image_count.count);
+    assert_eq!(1, images_saved.count);
 }
 
 #[actix_rt::test]

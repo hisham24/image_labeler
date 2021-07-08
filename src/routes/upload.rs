@@ -59,6 +59,7 @@ pub async fn upload_image(
             // Convert stream of bytes into String
             let x = String::from_utf8_lossy(&body[..]).into_owned();
             // TODO: Do error handling. Client error
+            println!("Received data {}", x);
             value = Some(serde_json::from_str::<Metadata>(&*x).unwrap());
             let metadata = match value {
                 Some(ref value) => {
