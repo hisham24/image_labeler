@@ -1,8 +1,6 @@
 use actix_web::{HttpResponse, web, error, Error};
 use sqlx::PgPool;
 use crate::data::{Metadata, SavedImages};
-use std::collections::HashMap;
-
 
 pub async fn get_images_information(
     web::Query(metadata): web::Query<Metadata>,

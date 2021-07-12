@@ -10,9 +10,9 @@ pub fn run(
     listener: TcpListener,
     db_pool: PgPool) -> Result<Server, std::io::Error> {
     let db_pool = web::Data::new(db_pool);
-    let auth = HttpAuthentication::bearer(validator);
     // Start http server
     let server = HttpServer::new(move || {
+        let auth = HttpAuthentication::bearer(crate::auth::validator);
         App::new()
             .wrap(
                 Cors::default()
@@ -24,6 +24,7 @@ pub fn run(
             .wrap(auth)
             .app_data(db_pool.clone())
             .route("/health_check", web::get().to(routes::health_check))
+            .route("/signup", web::post().to(routes::sign_up))
             .route("/login", web::post().to(routes::login))
             .route("/images", web::get().to(routes::get_images_information))
             .route("/images", web::post().to(routes::upload_images))

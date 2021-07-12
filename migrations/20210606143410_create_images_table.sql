@@ -26,3 +26,11 @@ CREATE TABLE image_labels(
      bbox TEXT NOT NULL,
      upload_at timestamptz NOT NULL
 );
+
+CREATE TABLE users(
+    id uuid NOT NULL,
+    PRIMARY KEY (id),
+    username TEXT NOT NULL UNIQUE,
+    password TEXT NOT NULL,
+    created_at timestamptz NOT NULL
+);

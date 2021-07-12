@@ -17,7 +17,7 @@ pub struct SavedImages {
 }
 
 #[derive(serde::Deserialize, serde::Serialize, Debug)]
-pub struct LoginRequest {
+pub struct UserRequest {
     pub username: String,
     pub password: String,
 }
