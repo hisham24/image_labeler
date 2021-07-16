@@ -37,12 +37,11 @@ pub fn create_jwt(id: String, username: String) -> Result<String, Error> {
 }
 
 pub async fn validator(req: ServiceRequest, credentials: BearerAuth) -> Result<ServiceRequest, Error> {
-    for route in PUBLIC_ROUTES.iter() {
-        if req.path().starts_with(route) {
-            return Ok(req);
-        }
-    }
-
+    // for route in PUBLIC_ROUTES.iter() {
+    //     if req.path().starts_with(route) {
+    //         return Ok(req);
+    //     }
+    // }
     if let Ok(_) = decode::<Claims>(
         credentials.token(),
         &DecodingKey::from_secret(JWT_SECRET),

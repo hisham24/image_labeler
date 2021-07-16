@@ -4,17 +4,23 @@ use sqlx::{PgConnection, Connection, PgPool, Executor};
 use image_labeler::startup::run;
 use image_labeler::configuration::{get_configuration, DatabaseSettings};
 use uuid::Uuid;
-use image_labeler::data::{Metadata, ImageLabels, SavedImages};
+use image_labeler::data::{Metadata, ImageLabels, SavedImages, UserRequest};
 use std::fs::remove_dir_all;
 use std::path::Path;
-use reqwest::blocking;
+use reqwest::{blocking, Client};
 use tokio::task;
 use std::fs;
 use tempfile::Builder;
+use bcrypt::{hash, DEFAULT_COST};
 
 pub struct TestApp {
     pub address: String,
     pub db_pool: PgPool,
+}
+
+#[derive(serde::Deserialize)]
+struct Token {
+    token: String,
 }
 
 async fn spawn_app() -> TestApp {
@@ -57,6 +63,37 @@ async fn configure_database(config: &DatabaseSettings) -> PgPool {
     connection_pool
 }
 
+async fn get_authorization_token(client: &Client, app: &TestApp) -> String {
+    let user_request = UserRequest {
+        username: String::from("testUser"),
+        password: String::from("testPassword24"),
+    };
+
+    let response = client
+        .post(format!("{}/signup", app.address))
+        .json(&user_request)
+        .send()
+        .await
+        .expect("Failed to execute request.");
+
+    assert_eq!(200, response.status().as_u16());
+
+    let response = client
+        .post(format!("{}/login", app.address))
+        .json(&user_request)
+        .send()
+        .await
+        .expect("Failed to execute request.");
+
+    assert_eq!(200, response.status().as_u16());
+    let token_response: Token = response
+        .json()
+        .await
+        .expect("Failed to receive token in response");
+
+    token_response.token
+}
+
 #[actix_rt::test]
 async fn health_check_works() {
     let app = spawn_app().await;
@@ -73,11 +110,105 @@ async fn health_check_works() {
     assert_eq!(Some(0), response.content_length());
 }
 
+#[actix_rt::test]
+async fn signup_returns_a_200_for_valid_data() {
+    let app = spawn_app().await;
+    let client = reqwest::Client::new();
+
+    let user_request = UserRequest {
+        username: String::from("testUser"),
+        password: String::from("testPassword24"),
+    };
+
+    let response = client
+        .post(format!("{}/signup", app.address))
+        .json(&user_request)
+        .send()
+        .await
+        .expect("Failed to execute request.");
+
+    assert_eq!(200, response.status().as_u16());
+
+    let query_result = sqlx::query!(
+        r#"
+        SELECT COUNT(*)
+        FROM users
+        WHERE username=$1
+        "#,
+        user_request.username
+    )
+        .fetch_one(&app.db_pool)
+        .await
+        .expect("Failed to fetch created user");
+    let count = match query_result.count {
+        Some(num) => num,
+        _ => 0,
+    };
+
+    assert_eq!(1, count);
+}
+
+#[actix_rt::test]
+async fn login_returns_a_200_for_authorized_request() {
+    let app = spawn_app().await;
+    let client = reqwest::Client::new();
+
+    let user_request = UserRequest {
+        username: String::from("testUser"),
+        password: String::from("testPassword24"),
+    };
+
+    let response = client
+        .post(format!("{}/signup", app.address))
+        .json(&user_request)
+        .send()
+        .await
+        .expect("Failed to execute request.");
+
+    assert_eq!(200, response.status().as_u16());
+
+    let response = client
+        .post(format!("{}/login", app.address))
+        .json(&user_request)
+        .send()
+        .await
+        .expect("Failed to execute request.");
+
+    assert_eq!(200, response.status().as_u16());
+    let token_response: Token = response
+        .json()
+        .await
+        .expect("Failed to receive token in response");
+    assert!(token_response.token.len() > 0);
+}
+
+#[actix_rt::test]
+async fn login_returns_a_401_for_unauthorized_request() {
+    let app = spawn_app().await;
+    let client = reqwest::Client::new();
+
+    let user_request = UserRequest {
+        username: String::from("testUser"),
+        password: String::from("testPassword24"),
+    };
+
+    let response = client
+        .post(format!("{}/login", app.address))
+        .json(&user_request)
+        .send()
+        .await
+        .expect("Failed to execute request.");
+
+    assert_eq!(401, response.status().as_u16());
+}
+
 // upload_images
 #[actix_rt::test]
 async fn upload_images_returns_a_200_for_valid_data() {
     let app = spawn_app().await;
     let client = reqwest::Client::new();
+
+    let token = get_authorization_token(&client, &app).await;
 
     let metadata = Metadata {
         username: String::from("mock_username_upload_images_200"),
@@ -85,7 +216,8 @@ async fn upload_images_returns_a_200_for_valid_data() {
     };
 
     let response = client
-        .post(format!("{}/images", app.address))
+        .post(format!("{}/api/images", app.address))
+        .bearer_auth(token.as_str())
         .json(&metadata)
         .send()
         .await
@@ -118,6 +250,8 @@ async fn upload_images_returns_a_400_when_data_is_missing() {
     let app = spawn_app().await;
     let client = reqwest::Client::new();
 
+    let token = get_authorization_token(&client, &app).await;
+
     let mut test_case0 = HashMap::new();
     test_case0.insert("username", "mock_username_upload_images_400");
 
@@ -130,7 +264,8 @@ async fn upload_images_returns_a_400_when_data_is_missing() {
 
     for (invalid_body, error_message) in test_cases {
         let response = client
-            .post(format!("{}/images", app.address))
+            .post(format!("{}/api/images", app.address))
+            .bearer_auth(token.as_str())
             .json(&invalid_body)
             .send()
             .await
@@ -151,13 +286,16 @@ async fn upload_image_returns_a_200_for_valid_data() {
     let app = spawn_app().await;
     let client = reqwest::Client::new();
 
+    let token = get_authorization_token(&client, &app).await;
+
     let metadata = Metadata {
         username: String::from("mock_username_upload_image_200"),
         image_folder: String::from("mock_image_folder"),
     };
 
     let response = client
-        .post(format!("{}/images", app.address))
+        .post(format!("{}/api/images", app.address))
+        .bearer_auth(token.as_str())
         .json(&metadata)
         .send()
         .await
@@ -166,6 +304,7 @@ async fn upload_image_returns_a_200_for_valid_data() {
     assert_eq!(200, response.status().as_u16());
 
     let address = app.address.clone();
+    let token_copy = token.clone();
     let response = task::spawn_blocking(move || {
         let metadata_part = blocking::multipart::Part::text(
             "{\"username\": \"mock_username_upload_image_200\", \"image_folder\": \"mock_image_folder\"}"
@@ -184,7 +323,8 @@ async fn upload_image_returns_a_200_for_valid_data() {
 
         let client = blocking::Client::new();
         client
-            .post(format!("{}/image", address))
+            .post(format!("{}/api/image", address))
+            .bearer_auth(token_copy.as_str())
             .multipart(form)
             .send()
             .expect("Failed to execute request.")
@@ -219,6 +359,9 @@ async fn upload_image_returns_a_200_for_valid_data() {
 #[actix_rt::test]
 async fn upload_image_returns_a_400_metadata_is_missing() {
     let app = spawn_app().await;
+    let client = reqwest::Client::new();
+
+    let token = get_authorization_token(&client, &app).await;
 
     let metadata = Metadata {
         username: String::from("mock_username_upload_image_400"),
@@ -226,6 +369,7 @@ async fn upload_image_returns_a_400_metadata_is_missing() {
     };
 
     let address = app.address.clone();
+    let token_copy = token.clone();
     let response = task::spawn_blocking(move || {
         let metadata_part = blocking::multipart::Part::text(
             "{\"username\": \"mock_username_upload_image_400\", \"image_folder\": \"mock_image_folder\"}"
@@ -244,7 +388,8 @@ async fn upload_image_returns_a_400_metadata_is_missing() {
 
         let client = blocking::Client::new();
         client
-            .post(format!("{}/image", address))
+            .post(format!("{}/api/image", address))
+            .bearer_auth(token_copy.as_str())
             .multipart(form)
             .send()
             .expect("Failed to execute request.")
@@ -279,13 +424,16 @@ async fn get_images_information_returns_correct_count() {
     let app = spawn_app().await;
     let client = reqwest::Client::new();
 
+    let token = get_authorization_token(&client, &app).await;
+
     let metadata = Metadata {
         username: String::from("mock_username_get_images_information"),
         image_folder: String::from("mock_image_folder"),
     };
 
     let response = client
-        .post(format!("{}/images", app.address))
+        .post(format!("{}/api/images", app.address))
+        .bearer_auth(token.as_str())
         .json(&metadata)
         .send()
         .await
@@ -297,9 +445,10 @@ async fn get_images_information_returns_correct_count() {
     let response = client
         .get(
             format!(
-                "{}/images?username={}&image_folder={}",
+                "{}/api/images?username={}&image_folder={}",
                 app.address, metadata.username, metadata.image_folder
             ))
+        .bearer_auth(token.as_str())
         .json(&metadata)
         .send()
         .await
@@ -313,6 +462,7 @@ async fn get_images_information_returns_correct_count() {
     assert_eq!(0, images_saved.count);
 
     let address = app.address.clone();
+    let token_copy = token.clone();
     let response = task::spawn_blocking(move || {
         let metadata_part = blocking::multipart::Part::text(
             "{\"username\": \"mock_username_get_images_information\", \"image_folder\": \"mock_image_folder\"}"
@@ -331,7 +481,8 @@ async fn get_images_information_returns_correct_count() {
 
         let client = blocking::Client::new();
         client
-            .post(format!("{}/image", address))
+            .post(format!("{}/api/image", address))
+            .bearer_auth(token_copy.as_str())
             .multipart(form)
             .send()
             .expect("Failed to execute request.")
@@ -344,9 +495,10 @@ async fn get_images_information_returns_correct_count() {
     let response = client
         .get(
             format!(
-                "{}/images?username={}&image_folder={}",
+                "{}/api/images?username={}&image_folder={}",
                 app.address, metadata.username, metadata.image_folder
             ))
+        .bearer_auth(token.as_str())
         .json(&metadata)
         .send()
         .await
@@ -365,13 +517,16 @@ async fn get_image_returns_a_200_for_valid_data() {
     let app = spawn_app().await;
     let client = reqwest::Client::new();
 
+    let token = get_authorization_token(&client, &app).await;
+
     let metadata = Metadata {
         username: String::from("mock_username_get_image_200"),
         image_folder: String::from("mock_image_folder"),
     };
 
     let response = client
-        .post(format!("{}/images", app.address))
+        .post(format!("{}/api/images", app.address))
+        .bearer_auth(token.as_str())
         .json(&metadata)
         .send()
         .await
@@ -380,6 +535,7 @@ async fn get_image_returns_a_200_for_valid_data() {
     assert_eq!(200, response.status().as_u16());
 
     let address = app.address.clone();
+    let token_copy = token.clone();
     let response = task::spawn_blocking(move || {
         let metadata_part = blocking::multipart::Part::text(
             "{\"username\": \"mock_username_get_image_200\", \"image_folder\": \"mock_image_folder\"}"
@@ -398,7 +554,8 @@ async fn get_image_returns_a_200_for_valid_data() {
 
         let client = blocking::Client::new();
         client
-            .post(format!("{}/image", address))
+            .post(format!("{}/api/image", address))
+            .bearer_auth(token_copy.clone())
             .multipart(form)
             .send()
             .expect("Failed to execute request.")
@@ -410,8 +567,9 @@ async fn get_image_returns_a_200_for_valid_data() {
 
     let response = client
         .get(format!(
-            "{}/images/im1.png?username=mock_username_get_image_200&image_folder=mock_image_folder",
+            "{}/api/images/im1.png?username=mock_username_get_image_200&image_folder=mock_image_folder",
             app.address))
+        .bearer_auth(token.as_str())
         .send()
         .await
         .expect("Failed to execute request.");
@@ -446,10 +604,13 @@ async fn get_image_returns_a_400_for_invalid_data() {
     let app = spawn_app().await;
     let client = reqwest::Client::new();
 
+    let token = get_authorization_token(&client, &app).await;
+
     let response = client
         .get(format!(
-            "{}/images/im1.png?username=mock_username_get_image_400&image_folder=mock_image_folder",
+            "{}/api/images/im1.png?username=mock_username_get_image_400&image_folder=mock_image_folder",
             app.address))
+        .bearer_auth(token.as_str())
         .send()
         .await
         .expect("Failed to execute request.");
@@ -462,13 +623,16 @@ async fn update_bbox_returns_a_200_for_valid_data() {
     let app = spawn_app().await;
     let client = reqwest::Client::new();
 
+    let token = get_authorization_token(&client, &app).await;
+
     let metadata = Metadata {
         username: String::from("mock_username_update_bbox_200"),
         image_folder: String::from("mock_image_folder"),
     };
 
     let response = client
-        .post(format!("{}/images", app.address))
+        .post(format!("{}/api/images", app.address))
+        .bearer_auth(token.as_str())
         .json(&metadata)
         .send()
         .await
@@ -477,6 +641,7 @@ async fn update_bbox_returns_a_200_for_valid_data() {
     assert_eq!(200, response.status().as_u16());
 
     let address = app.address.clone();
+    let token_copy = token.clone();
     let response = task::spawn_blocking(move || {
         let metadata_part = blocking::multipart::Part::text(
             "{\"username\": \"mock_username_update_bbox_200\", \"image_folder\": \"mock_image_folder\"}"
@@ -495,7 +660,8 @@ async fn update_bbox_returns_a_200_for_valid_data() {
 
         let client = blocking::Client::new();
         client
-            .post(format!("{}/image", address))
+            .post(format!("{}/api/image", address))
+            .bearer_auth(token_copy.as_str())
             .multipart(form)
             .send()
             .expect("Failed to execute request.")
@@ -511,8 +677,9 @@ async fn update_bbox_returns_a_200_for_valid_data() {
     };
     let response = client
         .post(format!(
-            "{}/images/bbox/im1.png?username=mock_username_update_bbox_200&image_folder=mock_image_folder", app.address
+            "{}/api/images/bbox/im1.png?username=mock_username_update_bbox_200&image_folder=mock_image_folder", app.address
         ))
+        .bearer_auth(token.as_str())
         .json(&image_labels)
         .send()
         .await
@@ -549,6 +716,8 @@ async fn update_bbox_returns_a_400_for_invalid_data() {
     let app = spawn_app().await;
     let client = reqwest::Client::new();
 
+    let token = get_authorization_token(&client, &app).await;
+
     let bboxes = vec![(1,2,3,4), (4,52,46,64)];
     let image_labels = ImageLabels {
         image_id: String::from("im1.png"),
@@ -556,8 +725,9 @@ async fn update_bbox_returns_a_400_for_invalid_data() {
     };
     let response = client
         .post(format!(
-            "{}/images/bbox/im1.png?username=mock_username_update_bbox_400&image_folder=mock_image_folder", app.address
+            "{}/api/images/bbox/im1.png?username=mock_username_update_bbox_400&image_folder=mock_image_folder", app.address
         ))
+        .bearer_auth(token.as_str())
         .json(&image_labels)
         .send()
         .await
@@ -571,13 +741,16 @@ async fn get_bbox_returns_a_200_for_valid_data() {
     let app = spawn_app().await;
     let client = reqwest::Client::new();
 
+    let token = get_authorization_token(&client, &app).await;
+
     let metadata = Metadata {
         username: String::from("mock_username_get_bbox_200"),
         image_folder: String::from("mock_image_folder"),
     };
 
     let response = client
-        .post(format!("{}/images", app.address))
+        .post(format!("{}/api/images", app.address))
+        .bearer_auth(token.as_str())
         .json(&metadata)
         .send()
         .await
@@ -586,6 +759,7 @@ async fn get_bbox_returns_a_200_for_valid_data() {
     assert_eq!(200, response.status().as_u16());
 
     let address = app.address.clone();
+    let token_copy = token.clone();
     let response = task::spawn_blocking(move || {
         let metadata_part = blocking::multipart::Part::text(
             "{\"username\": \"mock_username_get_bbox_200\", \"image_folder\": \"mock_image_folder\"}"
@@ -604,7 +778,8 @@ async fn get_bbox_returns_a_200_for_valid_data() {
 
         let client = blocking::Client::new();
         client
-            .post(format!("{}/image", address))
+            .post(format!("{}/api/image", address))
+            .bearer_auth(token_copy.as_str())
             .multipart(form)
             .send()
             .expect("Failed to execute request.")
@@ -620,8 +795,9 @@ async fn get_bbox_returns_a_200_for_valid_data() {
     };
     let response = client
         .post(format!(
-            "{}/images/bbox/im1.png?username=mock_username_get_bbox_200&image_folder=mock_image_folder", app.address
+            "{}/api/images/bbox/im1.png?username=mock_username_get_bbox_200&image_folder=mock_image_folder", app.address
         ))
+        .bearer_auth(token.as_str())
         .json(&image_labels)
         .send()
         .await
@@ -632,8 +808,9 @@ async fn get_bbox_returns_a_200_for_valid_data() {
 
     let response = client
         .get(format!(
-            "{}/images/bbox/im1.png?username=mock_username_get_bbox_200&image_folder=mock_image_folder", app.address
+            "{}/api/images/bbox/im1.png?username=mock_username_get_bbox_200&image_folder=mock_image_folder", app.address
         ))
+        .bearer_auth(token.as_str())
         .send()
         .await
         .expect("Failed to execute request.");
@@ -654,10 +831,13 @@ async fn get_bbox_returns_a_400_for_invalid_data() {
     let app = spawn_app().await;
     let client = reqwest::Client::new();
 
+    let token = get_authorization_token(&client, &app).await;
+
     let response = client
         .get(format!(
-            "{}/images/bbox/im1.png?username=mock_username_get_bbox_400&image_folder=mock_image_folder", app.address
+            "{}/api/images/bbox/im1.png?username=mock_username_get_bbox_400&image_folder=mock_image_folder", app.address
         ))
+        .bearer_auth(token.as_str())
         .send()
         .await
         .expect("Failed to execute request.");
