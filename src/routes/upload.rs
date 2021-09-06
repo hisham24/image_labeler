@@ -36,17 +36,12 @@ pub async fn upload_image(
     mut payload: Multipart,
     pool: web::Data<PgPool>
 ) -> Result<HttpResponse, Error> {
-    println!("IN UPLOAD IMAGE CALL");
     let mut value = None;
-    // let mut finished_uploading = false; // Need to implement logic for extra safety, no need
-                                             // for now
     let mut filename = None;
     let mut metadata_found = false;
     // iterate over multipart stream
     while let Ok(Some(mut field)) = payload.try_next().await {
         let content_type = field.content_type();
-        println!("Content type: {}", content_type);
-
         // Parse JSON
         if content_type.to_string() == "application/json" {
             // Maybe implement max payload size (https://actix.rs/docs/request/)
@@ -58,7 +53,6 @@ pub async fn upload_image(
 
             // Convert stream of bytes into String
             let x = String::from_utf8_lossy(&body[..]).into_owned();
-            // TODO: Do error handling. Client error
             value = Some(serde_json::from_str::<Metadata>(&*x).unwrap());
             let metadata = match value {
                 Some(ref value) => {
@@ -82,7 +76,6 @@ pub async fn upload_image(
             }
 
             let content_disposition = field.content_disposition().unwrap();
-            // TODO: Return error if filename not present
             filename = Some(String::from(content_disposition.get_filename().unwrap()));
             println!("content_disposition: {}", content_disposition);
             let value = match value {
@@ -115,7 +108,6 @@ pub async fn upload_image(
                     .await?
                     .unwrap();
             }
-            // finished_uploading = true;
         }
     }
 
@@ -168,6 +160,5 @@ async fn metadata_exists(metadata: &Metadata, pool: &PgPool) -> Result<bool, Err
         Some(num) => num,
         _ => 0,
     };
-    println!("metadata_exists: received count {:?}", count);
     return Ok(count > 0)
 }
