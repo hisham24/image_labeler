@@ -77,7 +77,8 @@ pub async fn login(
             error::ErrorInternalServerError(String::from(""))
         })?;
         let mut response = HashMap::new();
-        response.insert("token", token);
+        response.insert("username", &metadata.username[..]);
+        response.insert("token", &token[..]);
         Ok(HttpResponse::Ok().json(response))
     } else {
         Err(error::ErrorUnauthorized(String::from("Invalid username or password")))

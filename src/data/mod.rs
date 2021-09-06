@@ -5,6 +5,11 @@ pub struct Metadata {
 }
 
 #[derive(serde::Deserialize, serde::Serialize, Debug)]
+pub struct UserInfo {
+    pub username: String,
+}
+
+#[derive(serde::Deserialize, serde::Serialize, Debug)]
 pub struct ImageLabels {
     pub image_id: String,
     pub bboxes: Vec<(u32, u32, u32, u32)>,

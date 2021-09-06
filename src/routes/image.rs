@@ -97,7 +97,7 @@ pub async fn update_bbox(
     web::Query(metadata): web::Query<Metadata>,
     pool: web::Data<PgPool>,
 ) -> Result<HttpResponse, Error> {
-    println!("Received update_bbox request");
+    println!("Received update_bbox request for image {}", &image[..]);
     let image = image.into_inner();
     let image_found = image_exists(&metadata, &image[..], pool.get_ref()).await?;
     if image_found {
@@ -165,6 +165,5 @@ async fn image_exists(metadata: &Metadata, image: &str, pool: &PgPool) -> Result
         Some(num) => num,
         _ => 0,
     };
-    println!("image_exists: received count {:?}", count);
     return Ok(count > 0);
 }

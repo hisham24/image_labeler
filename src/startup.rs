@@ -28,6 +28,7 @@ pub fn run(
             .service(
                 web::scope("/api")
                 .wrap(auth)
+                .route("/image_folders", web::get().to(routes::get_image_folders))
                 .route("/images", web::get().to(routes::get_images_information))
                 .route("/images", web::post().to(routes::upload_images))
                 .route("/image", web::post().to(routes::upload_image))

@@ -18,7 +18,7 @@ struct Claims {
 }
 pub fn create_jwt(id: String, username: String) -> Result<String, Error> {
     let expiration = chrono::Utc::now()
-        .checked_add_signed(chrono::Duration::seconds(3600))
+        .checked_add_signed(chrono::Duration::seconds(360))
         .expect("Invalid timestamp")
         .timestamp();
 
@@ -42,6 +42,7 @@ pub async fn validator(req: ServiceRequest, credentials: BearerAuth) -> Result<S
     //         return Ok(req);
     //     }
     // }
+    println!("TOKEN IS {}", credentials.token());
     if let Ok(_) = decode::<Claims>(
         credentials.token(),
         &DecodingKey::from_secret(JWT_SECRET),

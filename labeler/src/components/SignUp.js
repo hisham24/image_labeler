@@ -1,9 +1,9 @@
-// Adapted from https://github.com/mui-org/material-ui/tree/master/docs/src/pages/getting-started/templates/sign-in
+// Adapted from https://github.com/mui-org/material-ui/tree/master/docs/src/pages/getting-started/templates/sign-up
 
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import { useDispatch } from 'react-redux';
 import Footer from './Footer';
-import { loginSession, setSignUpStatus, setAlert } from '../reducers/sessionReducer';
+import { setSignUpStatus, setAlert } from '../reducers/sessionReducer';
 import Avatar from '@material-ui/core/Avatar';
 import Button from '@material-ui/core/Button';
 import CssBaseline from '@material-ui/core/CssBaseline';
@@ -15,8 +15,8 @@ import LockOutlinedIcon from '@material-ui/icons/LockOutlined';
 import Typography from '@material-ui/core/Typography';
 import { makeStyles } from '@material-ui/core/styles';
 import Container from '@material-ui/core/Container';
-import { Link as RouterLink } from 'react-router-dom';
 import authService from '../services/auth';
+import { Link as RouterLink } from 'react-router-dom';
 
 const useStyles = makeStyles((theme) => ({
   paper: {
@@ -30,42 +30,33 @@ const useStyles = makeStyles((theme) => ({
     backgroundColor: theme.palette.secondary.main
   },
   form: {
-    width: '100%',
-    marginTop: theme.spacing(1)
+    width: '100%', // Fix IE 11 issue.
+    marginTop: theme.spacing(3)
   },
   submit: {
     margin: theme.spacing(3, 0, 2)
   }
 }));
 
-const Login = () => {
+const SignUp = () => {
   const dispatch = useDispatch();
   const classes = useStyles();
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
 
-  useEffect(() => {
-    console.log('YEET');
-    dispatch(setSignUpStatus(false));
-  }, []);
-
   const handleSubmit = async (event) => {
     event.preventDefault();
     try {
-      console.log('Attempt logging in');
-      const user = await authService.loginUser(username, password);
-      dispatch(loginSession(user.username, user.token));
+      await authService.signUpUser(username, password);
+      dispatch(setSignUpStatus(true));
       dispatch(setAlert(false));
-      window.localStorage.setItem(
-        'loggedUser', JSON.stringify(user)
-      );
     } catch (err) {
-      console.log('Err is ', err.response);
-      if (err.response.status === 401) {
-        dispatch(setAlert(true, 'Incorrect username or password'));
+      if (err.response.status === 409) {
+        dispatch(setAlert(true, 'Username already in use'));
       } else {
-        dispatch(setAlert(true, 'Error logging in'));
+        dispatch(setAlert(true, 'Error signing up'));
       }
+      setUsername('');
       setPassword('');
     }
   };
@@ -74,42 +65,42 @@ const Login = () => {
     <Container component="main" maxWidth="xs">
       <CssBaseline />
       <div className={classes.paper}>
-        {/* {alertComp === 'Login' &&
-          <Alert severity="error">{alertMessage}</Alert>
-        } */}
         <Avatar className={classes.avatar}>
           <LockOutlinedIcon />
         </Avatar>
         <Typography component="h1" variant="h5">
-          Sign in
+          Sign up
         </Typography>
         <form className={classes.form} onSubmit={handleSubmit}>
-          <TextField
-            value={username}
-            onChange={({ target }) => setUsername(target.value)}
-            variant="outlined"
-            margin="normal"
-            required
-            fullWidth
-            id="username"
-            label="Username"
-            name="username"
-            autoComplete="username"
-            autoFocus
-          />
-          <TextField
-            value={password}
-            onChange={({ target }) => setPassword(target.value)}
-            variant="outlined"
-            margin="normal"
-            required
-            fullWidth
-            name="password"
-            label="Password"
-            type="password"
-            id="password"
-            autoComplete="current-password"
-          />
+          <Grid container spacing={2}>
+            <Grid item xs={12}>
+              <TextField
+                value={username}
+                onChange={({ target }) => setUsername(target.value)}
+                variant="outlined"
+                required
+                fullWidth
+                id="username"
+                label="Username"
+                name="email"
+                autoComplete="email"
+              />
+            </Grid>
+            <Grid item xs={12}>
+              <TextField
+                value={password}
+                onChange={({ target }) => setPassword(target.value)}
+                variant="outlined"
+                required
+                fullWidth
+                name="password"
+                label="Password"
+                type="password"
+                id="password"
+                autoComplete="current-password"
+              />
+            </Grid>
+          </Grid>
           <Button
             type="submit"
             fullWidth
@@ -117,25 +108,27 @@ const Login = () => {
             color="primary"
             className={classes.submit}
           >
-            Login
+            Sign Up
           </Button>
           <Grid container>
             <Grid item>
-              <Link variant="body2"
-               component={RouterLink}
-               onClick={(event) => dispatch(setAlert(false))}
-               to='/signup'>
-                {"Don't have an account? Sign Up"}
+              <Link
+               variant="body2"
+              component={RouterLink}
+              onClick={(event) => dispatch(setAlert(false))
+              }
+              to='/login'>
+                Already have an account? Sign in
               </Link>
             </Grid>
           </Grid>
         </form>
       </div>
-      <Box mt={8}>
+      <Box mt={5}>
         <Footer />
       </Box>
     </Container>
   );
 };
 
-export default Login;
+export default SignUp;

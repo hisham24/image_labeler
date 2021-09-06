@@ -20,6 +20,7 @@ pub struct TestApp {
 
 #[derive(serde::Deserialize)]
 struct Token {
+    username: String,
     token: String,
 }
 
